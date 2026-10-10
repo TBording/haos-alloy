@@ -1,0 +1,38 @@
+# HAOS Alloy app manifest.
+#
+# Privilege decisions, one line each:
+# - journald true: the Supervisor bind-mounts /var/log/journal and
+#   /run/log/journal read-only (supervisor/docker/app.py). This is the only
+#   host access the app asks for.
+# - No hassio_api / hassio_role / homeassistant_api: the app calls no
+#   Supervisor or Core API. Reading other apps' logs through the API would need
+#   the manager role, which is root-equivalent.
+# - No host_network / host_pid / privileged / devices / map / ports.
+# - init false: run.sh execs Alloy, which runs as PID 1 and handles SIGTERM.
+# - apparmor true: our own enforce-mode profile (apparmor.txt).
+# - tmpfs true: /tmp is memory-backed; Alloy only writes temp files there.
+# - Root only inside run.sh: it reads options.json and the journal gid, then
+#   setpriv drops to uid 473 + that gid with no capabilities and no_new_privs.
+# - loki_url has no default, so this public repo names no internal host.
+name: HAOS Alloy
+version: "0.1.0"
+slug: haos_alloy
+description: >-
+  Ships the Home Assistant OS host journal (Core, Supervisor, plugins and apps)
+  to Loki with Grafana Alloy, as a non-root process.
+url: https://github.com/TBording/haos-alloy
+image: ghcr.io/tbording/haos-alloy
+arch:
+  - amd64
+  - aarch64
+stage: experimental
+startup: services
+boot: auto
+init: false
+journald: true
+apparmor: true
+tmpfs: true
+options:
+  loki_url: null
+schema:
+  loki_url: url

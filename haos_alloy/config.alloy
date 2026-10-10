@@ -1,0 +1,45 @@
+// HAOS Alloy: ship the HAOS host journal (Core, Supervisor, plugins, apps) to Loki.
+//
+// Reads the persistent host journal, bind-mounted read-only by journald: true
+// (HAOS keeps it on /mnt/data/logs; /run/log/journal is empty). __journal_* labels are dropped
+// before forward_to unless relabel_rules keep them, so the two needed labels are
+// copied here.
+//
+// Job label: "haos-journal". Use the same value in every LogQL query (README.md).
+
+loki.relabel "haos_journal" {
+	// Used only for its rules export; no direct forwarding.
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal_syslog_identifier"]
+		target_label  = "syslog_identifier"
+	}
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "unit"
+	}
+}
+
+loki.source.journal "haos" {
+	// Explicit path is required in a container: with path unset Alloy calls
+	// sd_journal_open(SD_JOURNAL_LOCAL_ONLY), which keeps only files matching the
+	// *container's* machine-id and so reads nothing of the host's (measured: zero
+	// lines, no error). A path uses sd_journal_open_directory, which reads them all
+	// (alloy v1.20.1 internal/sdjournal/sdjournal.go:336-350).
+	path = "/var/log/journal"
+	// Applies only when there is no saved position (first start): the journal
+	// position is kept in --storage.path on /data, so restarts resume, not re-read.
+	max_age       = "1h"
+	relabel_rules = loki.relabel.haos_journal.rules
+	forward_to    = [loki.write.loki.receiver]
+	labels        = {host = "haos", job = "haos-journal"}
+}
+
+loki.write "loki" {
+	endpoint {
+		// From the app option loki_url, exported by run.sh. No tenant header, no auth.
+		url = sys.env("LOKI_URL")
+	}
+}

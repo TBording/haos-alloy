@@ -1,0 +1,18 @@
+# grype policy for CI (read from the working directory by anchore/scan-action).
+#
+# Ignored: Go-module findings inside the upstream Alloy binary only. They are
+# compiled into grafana/alloy's /bin/alloy (Go stdlib, golang.org/x/*, Alloy's
+# own dependencies); this repo cannot rebuild that binary, so the only fix is
+# a newer Alloy release. Dependabot bumps the digest-pinned base image weekly,
+# and a release follows it. Every other finding (the Ubuntu base packages,
+# anything this repo adds) still fails CI at high or above when a fix exists.
+#
+# Re-check on each Alloy bump: `grype haos-alloy:ci` without this file shows
+# what the binary carries. Measured 2026-10-10 on grafana/alloy v1.20.1
+# (go1.26.7): stdlib Critical/High fixed in go1.26.9, golang.org/x/net High
+# fixed in v0.60.0. v1.20.1 was the latest Alloy release that day.
+ignore:
+  - package:
+      type: go-module
+      location: "**/bin/alloy"
+    reason: compiled into the upstream grafana/alloy binary; fixed only by a newer Alloy release

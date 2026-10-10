@@ -1,0 +1,128 @@
+# CI for haos-alloy.
+#
+# - Triggers: push to main and pull_request only (never pull_request_target).
+# - No secrets; the token is read-only for every job.
+# - Actions pinned to full commit SHAs (Dependabot bumps them). gitleaks is
+#   pinned by version and sha256; the base image by digest.
+# - step-security/harden-runner: gitleaks is in block mode (same endpoints as
+#   haos-exporter). lint and image run in audit mode until StepSecurity insights
+#   show their endpoint sets (Docker Hub for the grafana/alloy base); then block.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (shellcheck, alloy fmt, manifest, AppArmor)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: shellcheck run.sh
+        run: shellcheck --shell=sh haos_alloy/run.sh
+
+      - name: alloy fmt (config parses and is formatted)
+        run: |
+          docker run --rm --entrypoint /bin/alloy -v "$PWD/haos_alloy:/w:ro" \
+            grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f fmt /w/config.alloy > "$RUNNER_TEMP/fmt.alloy"
+          diff -u haos_alloy/config.alloy "$RUNNER_TEMP/fmt.alloy"
+
+      - name: Manifest and AppArmor checks
+        run: python3 ci/check_manifest.py
+
+  gitleaks:
+    name: gitleaks (full history)
+    runs-on: ubuntu-24.04
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            release-assets.githubusercontent.com:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks (pinned, sha256-verified)
+        run: |
+          tarball="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -sSfL -o "$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" -C "$RUNNER_TEMP" gitleaks
+
+      - name: Scan every commit on every fetched ref
+        run: '"$RUNNER_TEMP/gitleaks" git --log-opts="--all" --redact --verbose --no-banner .'
+
+  image:
+    name: Image (build both arches, grype)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+
+      - name: Build amd64 image (loaded, for scanning)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: haos_alloy
+          platforms: linux/amd64
+          push: false
+          load: true
+          provenance: false
+          sbom: false
+          tags: haos-alloy:ci
+          build-args: |
+            BUILD_ARCH=amd64
+            BUILD_REVISION=${{ github.sha }}
+
+      - name: Build arm64 image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: haos_alloy
+          platforms: linux/arm64
+          push: false
+          provenance: false
+          sbom: false
+          build-args: |
+            BUILD_ARCH=aarch64
+            BUILD_REVISION=${{ github.sha }}
+
+      # Fixable high/critical findings only: unfixed CVEs in the upstream
+      # Ubuntu base would otherwise fail every run with nothing to act on.
+      - name: Scan image with grype
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: haos-alloy:ci
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+          output-format: table
+          grype-version: v0.120.0

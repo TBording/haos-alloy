@@ -1,0 +1,107 @@
+# Bump version in config.yaml whenever this file changes: the Supervisor
+# reloads the profile only on install/update, never on rebuild.
+#
+# AppArmor profile for the HAOS Alloy app.
+#
+# Modelled on haos-exporter's profile:
+# - No abstractions/base, and no blanket `file,`, `network,` or `capability,`.
+# - No explicit `deny` rules: an implicit deny is logged as apparmor="DENIED"
+#   (journald identifier `audit`, which this app itself ships to Loki).
+# - Exactly one line starts with "profile" at column 0; the Supervisor renames
+#   it to the full app slug, so the profile refers to itself only as
+#   @{profile_name}.
+#
+# Two phases share this profile:
+# 1. run.sh as root: reads options.json and the journal gid, creates
+#    /data/alloy, then setpriv drops privileges. That needs setuid, setgid,
+#    setpcap (bounding-set drop) and chown, and nothing else.
+# 2. Alloy as uid 473 with no capabilities: reads the journal, keeps its
+#    position under /data/alloy and pushes to Loki over TCP.
+
+abi <abi/3.0>,
+
+include <tunables/global>
+
+profile haos_alloy flags=(attach_disconnected,mediate_deleted) {
+  signal (receive) peer=unconfined,
+  signal (receive) peer=runc,
+  signal (receive) peer=crun,
+  # The Go runtime preempts goroutines with SIGURG to its own threads.
+  signal (send, receive) peer=@{profile_name},
+
+  capability setuid,
+  capability setgid,
+  capability setpcap,
+  capability chown,
+
+  # Push to Loki (TCP) and DNS (UDP/TCP).
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  # Go enumerates interfaces over netlink (cluster advertise address).
+  network netlink raw,
+  # libc NSS probes the (absent) nscd socket when setpriv and chown resolve ids.
+  network unix stream,
+
+  # The entrypoint and the tools it runs. /bin is a symlink to /usr/bin in
+  # the Ubuntu base, and AppArmor matches the resolved path.
+  /run.sh r,
+  /usr/bin/{dash,sh,sed,ls,head,stat,setpriv,date,mkdir,chown} ix,
+  # Alloy also reads its own binary (build info).
+  /usr/bin/alloy rix,
+
+  # Dynamic loader and shared libraries (libc, and libsystemd, which Alloy's
+  # journal reader dlopens).
+  /etc/ld.so.cache r,
+  /usr/lib/** mr,
+
+  # Name resolution, user lookups, time zones, TLS roots.
+  /etc/hosts r,
+  /etc/resolv.conf r,
+  /etc/nsswitch.conf r,
+  /etc/host.conf r,
+  /etc/gai.conf r,
+  /etc/passwd r,
+  /etc/group r,
+  /etc/localtime r,
+  /usr/share/zoneinfo/{,**} r,
+  /etc/ssl/certs/{,**} r,
+  /usr/share/ca-certificates/{,**} r,
+
+  /etc/alloy/config.alloy r,
+  /etc/machine-id r,
+
+  # App options (root, run.sh) and Alloy's storage (positions, WAL).
+  /data/ r,
+  /data/options.json r,
+  /data/alloy/ rw,
+  /data/alloy/** rwk,
+
+  # The host journal, read-only bind mounts (journald: true).
+  /var/log/journal/{,**} r,
+  /run/log/journal/{,**} r,
+
+  # Temp files: renameio writes the positions file via /tmp (tmpfs: true)
+  # when it shares a filesystem with the target. No m on /tmp: the Snowflake
+  # driver's native-library load is switched off in the Dockerfile
+  # (SF_DISABLE_MINICORE) and would be denied here anyway.
+  /tmp/ r,
+  owner /tmp/** rwk,
+
+  /dev/null rw,
+  /dev/urandom r,
+
+  # Own process information and kernel-global limits the Go runtime reads.
+  owner @{PROC}/@{pid}/** r,
+  # setpriv reads status after dropping to uid 473, when the owner rule no
+  # longer matches root-owned /proc/1.
+  @{PROC}/@{pid}/status r,
+  @{PROC}/sys/kernel/cap_last_cap r,
+  @{PROC}/stat r,
+  @{PROC}/filesystems r,
+  @{PROC}/sys/net/core/somaxconn r,
+  @{PROC}/sys/kernel/random/boot_id r,
+  /sys/fs/cgroup/{,**} r,
+  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+}

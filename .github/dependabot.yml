@@ -1,0 +1,19 @@
+# Weekly bumps for the pinned actions and the digest-pinned grafana/alloy base.
+# gitleaks (version + sha256 in ci.yml) and grype-version are bumped by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /haos_alloy
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
