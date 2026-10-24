@@ -11,6 +11,8 @@
 # what the binary carries. Measured 2026-10-10 on grafana/alloy v1.20.1
 # (go1.26.7): stdlib Critical/High fixed in go1.26.9, golang.org/x/net High
 # fixed in v0.60.0. v1.20.1 was the latest Alloy release that day.
+# Re-measured 2026-10-24 on v1.21.0 (go1.27.2): no Critical/High with a fix
+# (--only-fixed); go1.27.2 still predates GO-2026-6809 (fixed in go1.27.3).
 ignore:
   - package:
       type: go-module

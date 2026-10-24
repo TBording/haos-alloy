@@ -15,7 +15,7 @@
 #   setpriv drops to uid 473 + that gid with no capabilities and no_new_privs.
 # - loki_url has no default, so this public repo names no internal host.
 name: HAOS Alloy
-version: "0.1.1"
+version: "0.1.2"
 slug: haos_alloy
 description: >-
   Ships the Home Assistant OS host journal (Core, Supervisor, plugins and apps)
