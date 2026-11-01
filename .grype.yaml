@@ -13,6 +13,8 @@
 # fixed in v0.60.0. v1.20.1 was the latest Alloy release that day.
 # Re-measured 2026-10-24 on v1.21.0 (go1.27.2): no Critical/High with a fix
 # (--only-fixed); go1.27.2 still predates GO-2026-6809 (fixed in go1.27.3).
+# Re-measured 2026-11-01 on v1.21.3 (go1.27.3): no Critical/High at all, fixed
+# or not; no stdlib findings remain, so GO-2026-6809 is gone.
 ignore:
   - package:
       type: go-module
