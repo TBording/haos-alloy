@@ -36,8 +36,9 @@ jobs:
 
       - name: alloy fmt (config parses and is formatted)
         run: |
+          alloy_image=$(awk '$1 == "FROM" && $2 ~ /^grafana\/alloy:/ { print $2; exit }' haos_alloy/Dockerfile)
           docker run --rm --entrypoint /bin/alloy -v "$PWD/haos_alloy:/w:ro" \
-            grafana/alloy:v1.21.3@sha256:8ab871206bd2d8f89277f53abffee5f452a293980788d52f85fa183a87a505a4 fmt /w/config.alloy > "$RUNNER_TEMP/fmt.alloy"
+            "$alloy_image" fmt /w/config.alloy > "$RUNNER_TEMP/fmt.alloy"
           diff -u haos_alloy/config.alloy "$RUNNER_TEMP/fmt.alloy"
 
       - name: Manifest and AppArmor checks
