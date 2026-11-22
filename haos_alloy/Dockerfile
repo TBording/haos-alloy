@@ -2,8 +2,7 @@
 # a local build (folder in /local_apps) works too. No BUILD_FROM (not provided
 # since Supervisor 2026.04.0), so FROM is explicit.
 #
-# Base pinned by the multi-arch index digest for grafana/alloy v1.21.3
-# (`docker buildx imagetools inspect` returns sha256:8ab87120...; verified).
+# Pin the multi-arch index digest, not an individual platform digest.
 FROM grafana/alloy:v1.22.0@sha256:9acc2529bc1edb7f5b2bd801dd8334ebc80c158e3a9e5526ecd7c9a273d43189
 
 ARG BUILD_ARCH
